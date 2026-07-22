@@ -42,6 +42,8 @@ texte, panneau détail avec stacktrace, mémorisation du dernier dossier.
 - [x] **Marque-pages / drapeaux** — colonne ★, `Ctrl+B` (bascule),
       `F2`/`Maj+F2` (navigation), toggle « ★ seulement ». (Session uniquement.)
 - [x] **Retour à la ligne (wrap)** togglable sur la colonne message.
+- [x] **Panneau latéral** : liste des fichiers `.log` d'un dossier,
+      multi-sélection pour chargement dynamique, bouton *Dossier…* + refresh.
 - [ ] **Colonne « source »** (fichier) + filtre par fichier.
 - [ ] **Support des logs `.gz`** rotés.
 - [ ] **Notification desktop** sur CRITICAL en mode Suivre.

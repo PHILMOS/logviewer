@@ -24,6 +24,8 @@ Depuis GNOME : chercher **« logviewer »** dans les Activités (un lanceur
 `.desktop` est installé dans `~/.local/share/applications/`).
 
 Fonctions :
+- **panneau latéral** listant les fichiers `.log` d'un dossier : clic pour
+  charger (multi-sélection), bouton *Dossier…* et rafraîchissement ;
 - liste triée par date (colonnes date/niveau/channel/message, colorée par niveau) ;
 - **timeline** temporelle colorée par niveau (clic/glissé pour cadrer une période) ;
 - filtres : niveau, channel, **plage de dates** via sélecteur calendrier

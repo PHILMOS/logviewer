@@ -307,8 +307,16 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             except GLib.Error:
                 pass
 
+        # --- disposition : panneau fichiers (gauche) | contenu (droite) ---
+        self.folder = None
+        self._sidebar_loading = False
+        main_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        main_paned.set_position(240)
+        self.add(main_paned)
+        main_paned.pack1(self._make_sidebar(), False, False)
+
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.add(outer)
+        main_paned.pack2(outer, True, True)
 
         # --- barre d'outils ligne 1 ---
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -449,6 +457,12 @@ class LogViewerWindow(Gtk.ApplicationWindow):
                 self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._apply_font()
 
+        # peupler le panneau latéral avec le dernier dossier connu
+        initial = load_config().get("last_folder")
+        if initial and os.path.isdir(initial):
+            self.folder = initial
+            self._refresh_sidebar()
+
         self.populate()
 
     # --- police / thème ---
@@ -543,6 +557,108 @@ class LogViewerWindow(Gtk.ApplicationWindow):
                 paths.append(p)
         if paths:
             self.set_files(paths)
+
+    # --- panneau latéral : fichiers du dossier ---
+    def _make_sidebar(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_size_request(200, -1)
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        for m in ("set_margin_top", "set_margin_start", "set_margin_end"):
+            getattr(header, m)(4)
+        folder_btn = Gtk.Button(label="Dossier…")
+        folder_btn.set_tooltip_text("Choisir le dossier à parcourir")
+        folder_btn.connect("clicked", self._on_pick_folder)
+        header.pack_start(folder_btn, True, True, 0)
+        refresh = Gtk.Button()
+        refresh.set_image(Gtk.Image.new_from_icon_name("view-refresh-symbolic",
+                                                       Gtk.IconSize.BUTTON))
+        refresh.set_tooltip_text("Rafraîchir la liste")
+        refresh.connect("clicked", lambda *_: self._refresh_sidebar())
+        header.pack_start(refresh, False, False, 0)
+        box.pack_start(header, False, False, 0)
+
+        self.folder_label = Gtk.Label(xalign=0)
+        self.folder_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.folder_label.set_margin_start(4)
+        self.folder_label.set_margin_end(4)
+        box.pack_start(self.folder_label, False, False, 0)
+
+        self.file_list = Gtk.ListBox()
+        self.file_list.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
+        self.file_list.connect("selected-rows-changed", self._on_files_selected)
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sc.add(self.file_list)
+        box.pack_start(sc, True, True, 0)
+        return box
+
+    def _on_pick_folder(self, _btn):
+        dlg = Gtk.FileChooserDialog(
+            title="Choisir un dossier", parent=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dlg.add_buttons("Annuler", Gtk.ResponseType.CANCEL,
+                        "Ouvrir", Gtk.ResponseType.OK)
+        start = self.folder or load_config().get("last_folder") \
+            or os.path.expanduser("~/projets/dockr/data/php/logs")
+        if os.path.isdir(start):
+            dlg.set_current_folder(start)
+        if dlg.run() == Gtk.ResponseType.OK:
+            self.set_folder(dlg.get_current_folder())
+        dlg.destroy()
+
+    def set_folder(self, folder):
+        """Définit le dossier parcouru et peuple la liste des fichiers."""
+        if not folder or not os.path.isdir(folder):
+            return
+        self.folder = folder
+        cfg = load_config()
+        cfg["last_folder"] = folder
+        save_config(cfg)
+        self._refresh_sidebar()
+
+    def _refresh_sidebar(self):
+        if not self.folder:
+            return
+        self.folder_label.set_text(os.path.basename(self.folder.rstrip("/")) or self.folder)
+        self.folder_label.set_tooltip_text(self.folder)
+        for child in self.file_list.get_children():
+            self.file_list.remove(child)
+        files = sorted(glob.glob(os.path.join(self.folder, "*.log")))
+        self._sidebar_loading = True
+        for path in files:
+            row = Gtk.ListBoxRow()
+            row.path = path
+            lbl = Gtk.Label(label=os.path.basename(path), xalign=0)
+            lbl.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            lbl.set_margin_start(6)
+            lbl.set_margin_top(2)
+            lbl.set_margin_bottom(2)
+            row.add(lbl)
+            self.file_list.add(row)
+        self.file_list.show_all()
+        # re-sélectionner les fichiers déjà chargés
+        loaded = set(self.loaded_paths)
+        for row in self.file_list.get_children():
+            if row.path in loaded:
+                self.file_list.select_row(row)
+        self._sidebar_loading = False
+
+    def _on_files_selected(self, _listbox):
+        if self._sidebar_loading:
+            return
+        paths = [row.path for row in self.file_list.get_selected_rows()]
+        if paths:
+            self.set_files(paths, from_sidebar=True)
+
+    def _sync_sidebar_to_folder(self, paths):
+        """Aligne le dossier du panneau sur les fichiers ouverts ailleurs."""
+        dirs = {os.path.dirname(p) for p in paths if os.path.isfile(p)}
+        if len(dirs) == 1:
+            d = dirs.pop()
+            if d != self.folder:
+                self.set_folder(d)
+            else:
+                self._refresh_sidebar()
 
     def _make_date_filters(self):
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -802,6 +918,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
     # --- filtrage ---
     def _visible(self, model, it, _data):
         idx = model[it][COL_IDX]
+        if idx >= len(self.events):   # ligne transitoire pendant un rechargement
+            return False
         e = self.events[idx]
         if self.bm_only_chk.get_active() and idx not in self.bookmarks:
             return False
@@ -1211,7 +1329,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             self.set_files(paths)
         dlg.destroy()
 
-    def set_files(self, paths):
+    def set_files(self, paths, from_sidebar=False):
         # arrêter le suivi en cours avant de recharger
         if self.follow_btn.get_active():
             self.follow_btn.set_active(False)
@@ -1225,6 +1343,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.chan_combo.set_active(0)
         self._restore_filters()
         self.populate()
+        # aligner le panneau latéral quand l'ouverture vient d'ailleurs
+        if not from_sidebar:
+            self._sync_sidebar_to_folder(self.loaded_paths)
 
 
 class LogViewerApp(Gtk.Application):
