@@ -46,7 +46,7 @@ texte, panneau détail avec stacktrace, mémorisation du dernier dossier.
       multi-sélection pour chargement dynamique, bouton *Dossier…* + refresh.
 - [x] **Filtre par tag de context** — clé découverte dynamiquement + valeur
       (liste plafonnée à 300 valeurs les plus fréquentes).
-- [ ] **Colonne « source »** (fichier) + filtre par fichier.
+- [x] **Colonne « source »** (fichier d'origine) + combo de filtre par fichier.
 - [x] **Multi-formats** — détection auto par ligne : JSON Monolog, PHP error_log,
       Apache error/access, syslog/logs système, texte générique.
 - [x] **Support des logs `.gz`** rotés — décompression transparente (`open_text`).

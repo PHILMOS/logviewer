@@ -30,7 +30,8 @@ Depuis GNOME : chercher **« logviewer »** dans les Activités (un lanceur
 Fonctions :
 - **panneau latéral** listant les fichiers `.log` d'un dossier : clic pour
   charger (multi-sélection), bouton *Dossier…* et rafraîchissement ;
-- liste triée par date (colonnes date/niveau/channel/message, colorée par niveau) ;
+- liste triée par date (colonnes date/niveau/channel/**source**/message,
+  colorée par niveau) + filtre par fichier source ;
 - **timeline** temporelle colorée par niveau (clic/glissé pour cadrer une période) ;
 - filtres : niveau, channel, **plage de dates** via sélecteur calendrier
   (« De » / « À » : `Gtk.Calendar` + heure/minute) + **boutons rapides**
