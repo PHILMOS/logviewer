@@ -55,6 +55,8 @@ Fonctions :
   (résolution auto `/app/...` → `services/*`, surchargeable via `path_map`) ;
 - **thème sombre auto** (suit GNOME) + police ajustable (`Ctrl +` / `Ctrl -`) ;
 - **filtres persistés** entre sessions ;
+- **chargement progressif** non bloquant des gros fichiers (barre de statut
+  « Chargement… N/total ») ;
 - bouton *Ouvrir…* qui mémorise le dernier dossier consulté.
 
 ### Raccourcis clavier

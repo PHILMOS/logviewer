@@ -52,7 +52,9 @@ texte, panneau détail avec stacktrace, mémorisation du dernier dossier.
 - [x] **Support des logs `.gz`** rotés — décompression transparente (`open_text`).
       Non suivis en tail (statiques).
 - [x] **Notification desktop** sur ERROR/CRITICAL en mode Suivre (case *Notifier*).
-- [ ] **Perf gros fichiers** — chargement en tâche de fond.
+- [x] **Perf gros fichiers** — remplissage progressif non bloquant (idle chunks),
+      blob de recherche pré-calculé + compilation unique de la regex,
+      re-surlignage de liste plafonné (5000 lignes).
 - [x] **Dépôt git** — https://github.com/PHILMOS/logviewer (tests unitaires : à faire).
 
 ---
