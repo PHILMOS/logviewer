@@ -329,6 +329,11 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         open_btn.connect("clicked", self.on_open)
         bar.pack_start(open_btn, False, False, 0)
 
+        clear_btn = Gtk.Button(label="Vider")
+        clear_btn.set_tooltip_text("Vider le contenu chargé (Ctrl+L)")
+        clear_btn.connect("clicked", lambda *_: self.clear_content())
+        bar.pack_start(clear_btn, False, False, 0)
+
         self.search = Gtk.SearchEntry()
         self.search.set_placeholder_text("Recherche…")
         self.search.connect("search-changed", lambda *_: self.on_search_changed())
@@ -506,6 +511,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         if ctrl and kv in (Gdk.KEY_o, Gdk.KEY_O):
             self.on_open(None)
             return True
+        if ctrl and kv in (Gdk.KEY_l, Gdk.KEY_L):
+            self.clear_content()
+            return True
         if ctrl and kv in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
             self.change_font(1)
             return True
@@ -560,6 +568,27 @@ class LogViewerWindow(Gtk.ApplicationWindow):
     def reload(self):
         if self.loaded_paths:
             self.set_files(self.loaded_paths)
+
+    def clear_content(self):
+        """Vide entièrement le contenu chargé (events, liste, détail)."""
+        if self.follow_btn.get_active():
+            self.follow_btn.set_active(False)
+        self.loaded_paths = []
+        self.events = []
+        self.bookmarks.clear()
+        self.store.clear()
+        self.detail.get_buffer().set_text("")
+        self._update_counts()
+        self._refresh_ctx_keys()
+        self.refilter()
+        if self.timeline:
+            self.timeline.queue_draw()
+        # désélectionner les fichiers du panneau latéral
+        self._sidebar_loading = True
+        self.file_list.unselect_all()
+        self._sidebar_loading = False
+        self.status.pop(0)
+        self.status.push(0, "Contenu vidé")
 
     def on_drag_data(self, _w, _ctx, _x, _y, data, _info, _time):
         paths = []

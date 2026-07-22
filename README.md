@@ -56,6 +56,7 @@ Fonctions :
 |---|---|
 | `Ctrl+F` | focus recherche |
 | `Ctrl+O` | ouvrir des fichiers |
+| `Ctrl+L` | vider le contenu |
 | `F5` | recharger |
 | `Ctrl +` / `Ctrl -` | taille de police |
 | `Ctrl+B` | marquer / démarquer la ligne |
