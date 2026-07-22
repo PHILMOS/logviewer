@@ -44,6 +44,8 @@ texte, panneau détail avec stacktrace, mémorisation du dernier dossier.
 - [x] **Retour à la ligne (wrap)** togglable sur la colonne message.
 - [x] **Panneau latéral** : liste des fichiers `.log` d'un dossier,
       multi-sélection pour chargement dynamique, bouton *Dossier…* + refresh.
+- [x] **Filtre par tag de context** — clé découverte dynamiquement + valeur
+      (liste plafonnée à 300 valeurs les plus fréquentes).
 - [ ] **Colonne « source »** (fichier) + filtre par fichier.
 - [ ] **Support des logs `.gz`** rotés.
 - [ ] **Notification desktop** sur CRITICAL en mode Suivre.

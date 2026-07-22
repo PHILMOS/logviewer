@@ -32,6 +32,8 @@ Fonctions :
   (« De » / « À » : `Gtk.Calendar` + heure/minute) + **boutons rapides**
   (`15 min` / `1 h` / `Jour` / `Tout`), recherche texte ou **regex** avec
   **surlignage** des occurrences ;
+- **filtre par tag de context** : clé de `context` découverte dynamiquement +
+  valeur (ex. `class = LogicException`) ;
 - **compteurs par niveau** cliquables et **cumulables** (filtre multi-niveaux) ;
 - **marque-pages** (colonne ★, `Ctrl+B`, navigation `F2` / `Maj+F2`, « ★ seulement ») ;
 - **retour à la ligne** togglable sur la colonne message ;

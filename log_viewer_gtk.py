@@ -296,6 +296,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.active_levels = set()   # filtre multi-niveaux (vide = tous)
         self.bookmarks = set()       # index d'events marqués (par session)
         self._building_counts = False
+        self._ctx_updating = False   # vrai pendant le rebuild des combos context
         cfg = load_config()
         self.font_size = int(cfg.get("font_size", 10))
 
@@ -381,6 +382,21 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         bar2.pack_start(self.counts_box, False, False, 0)
 
         bar2.pack_end(self._make_date_filters(), False, False, 0)
+
+        # --- barre d'outils ligne 3 : filtre par tag de context ---
+        bar3 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        for m in ("set_margin_bottom", "set_margin_start", "set_margin_end"):
+            getattr(bar3, m)(6)
+        outer.pack_start(bar3, False, False, 0)
+        bar3.pack_start(Gtk.Label(label="Context :"), False, False, 0)
+        self.ctx_key_combo = Gtk.ComboBoxText()
+        self.ctx_key_combo.set_tooltip_text("Clé de context à filtrer (découverte dynamiquement)")
+        self.ctx_key_combo.connect("changed", self._on_ctx_key_changed)
+        bar3.pack_start(self.ctx_key_combo, False, False, 0)
+        self.ctx_val_combo = Gtk.ComboBoxText()
+        self.ctx_val_combo.set_tooltip_text("Valeur à filtrer")
+        self.ctx_val_combo.connect("changed", lambda *_: self._on_filter_changed())
+        bar3.pack_start(self.ctx_val_combo, True, True, 0)
 
         # --- timeline (histogramme temporel, cliquable/glissable) ---
         self.timeline = None
@@ -557,6 +573,66 @@ class LogViewerWindow(Gtk.ApplicationWindow):
                 paths.append(p)
         if paths:
             self.set_files(paths)
+
+    # --- filtre par tag de context (dynamique) ---
+    CTX_MAX_VALUES = 300          # au-delà, on ne liste pas les valeurs
+    CTX_EXCLUDE = {"trace", "message"}
+
+    @staticmethod
+    def _ctx_str(v):
+        if isinstance(v, str):
+            return v
+        if v is None:
+            return "null"
+        return json.dumps(v, ensure_ascii=False, default=str)
+
+    def _refresh_ctx_keys(self):
+        keys = set()
+        for e in self.events:
+            ctx = e.get("context")
+            if isinstance(ctx, dict):
+                keys.update(k for k in ctx if k not in self.CTX_EXCLUDE)
+        self._ctx_updating = True
+        prev = self.ctx_key_combo.get_active_text()
+        self.ctx_key_combo.remove_all()
+        self.ctx_key_combo.append_text("(aucun)")
+        for k in sorted(keys):
+            self.ctx_key_combo.append_text(k)
+        self._set_combo(self.ctx_key_combo, prev or "(aucun)")
+        if self.ctx_key_combo.get_active() < 0:
+            self.ctx_key_combo.set_active(0)
+        self._ctx_updating = False
+        self._refresh_ctx_values()
+
+    def _refresh_ctx_values(self):
+        key = self.ctx_key_combo.get_active_text()
+        self._ctx_updating = True
+        prev = self.ctx_val_combo.get_active_text()
+        self.ctx_val_combo.remove_all()
+        self.ctx_val_combo.append_text("Toutes")
+        if key and key != "(aucun)":
+            counts = Counter()
+            for e in self.events:
+                ctx = e.get("context")
+                if isinstance(ctx, dict) and key in ctx:
+                    counts[self._ctx_str(ctx[key])] += 1
+            if 0 < len(counts) <= self.CTX_MAX_VALUES:
+                for v in sorted(counts):
+                    self.ctx_val_combo.append_text(v)
+            else:
+                # trop de valeurs distinctes : garder les plus fréquentes
+                for v, _ in counts.most_common(self.CTX_MAX_VALUES):
+                    self.ctx_val_combo.append_text(v)
+        self._set_combo(self.ctx_val_combo, prev or "Toutes")
+        if self.ctx_val_combo.get_active() < 0:
+            self.ctx_val_combo.set_active(0)
+        self._ctx_updating = False
+
+    def _on_ctx_key_changed(self, _combo):
+        if self._ctx_updating:
+            return
+        self._refresh_ctx_values()
+        self._on_filter_changed()
 
     # --- panneau latéral : fichiers du dossier ---
     def _make_sidebar(self):
@@ -928,6 +1004,13 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         ch_sel = self.chan_combo.get_active_text()
         if ch_sel and ch_sel != "Tous channels" and (e.get("channel") or "?") != ch_sel:
             return False
+        ck = self.ctx_key_combo.get_active_text()
+        cv = self.ctx_val_combo.get_active_text()
+        if ck and ck != "(aucun)" and cv and cv != "Toutes":
+            ctx = e.get("context")
+            if (not isinstance(ctx, dict) or ck not in ctx
+                    or self._ctx_str(ctx[ck]) != cv):
+                return False
         if self.dt_start or self.dt_end:
             edt = e.get("_dt")
             if edt is None:
@@ -967,6 +1050,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             "group": self.group_chk.get_active(),
             "levels": sorted(self.active_levels),
             "channel": self.chan_combo.get_active_text() or "Tous channels",
+            "ctx_key": self.ctx_key_combo.get_active_text() or "(aucun)",
+            "ctx_val": self.ctx_val_combo.get_active_text() or "Toutes",
             "date_start": self.dt_start.isoformat() if self.dt_start else "",
             "date_end": self.dt_end.isoformat() if self.dt_end else "",
         }
@@ -985,6 +1070,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             self.date_end.set_value(self._iso(flt.get("date_end")))
             self.active_levels = set(flt.get("levels") or [])
             self._set_combo(self.chan_combo, flt.get("channel"))
+            self._set_combo(self.ctx_key_combo, flt.get("ctx_key"))
+            self._refresh_ctx_values()
+            self._set_combo(self.ctx_val_combo, flt.get("ctx_val"))
         finally:
             self._loading = False
         self.dt_start = self.date_start.get_value()
@@ -1341,6 +1429,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         for ch in sorted({e.get("channel") or "?" for e in self.events}):
             self.chan_combo.append_text(ch)
         self.chan_combo.set_active(0)
+        self._refresh_ctx_keys()
         self._restore_filters()
         self.populate()
         # aligner le panneau latéral quand l'ouverture vient d'ailleurs
