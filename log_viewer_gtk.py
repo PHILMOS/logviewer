@@ -142,14 +142,169 @@ def expand_paths(patterns):
     return uniq
 
 
+# --- détection multi-formats (JSON, PHP error_log, Apache, syslog, texte) ---
+LEVEL_KEYWORDS = [
+    ("EMERGENCY", ["emergency", "emerg"]),
+    ("ALERT", ["alert"]),
+    ("CRITICAL", ["critical", "fatal"]),
+    ("ERROR", ["error"]),
+    ("WARNING", ["warning", "warn"]),
+    ("NOTICE", ["notice", "deprecated"]),
+    ("INFO", ["info"]),
+    ("DEBUG", ["debug"]),
+]
+
+
+def _canon_level(text):
+    """Devine un niveau canonique à partir de mots-clés dans le texte."""
+    t = (text or "").lower()
+    for canon, kws in LEVEL_KEYWORDS:
+        for kw in kws:
+            if re.search(r"\b" + re.escape(kw), t):
+                return canon
+    return None
+
+
+def _iso_or_empty(dt):
+    return dt.isoformat() if dt else ""
+
+
+# mois anglais -> numéro (indépendant de la locale système)
+_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def _mkdt(year, mon_abbr, day, hh, mm, ss):
+    mo = _MONTHS.get(str(mon_abbr).lower()[:3])
+    if not mo:
+        return None
+    try:
+        return datetime(int(year), mo, int(day), int(hh), int(mm), int(ss))
+    except (ValueError, TypeError):
+        return None
+
+
+def parse_json_line(raw):
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return dict(obj) if isinstance(obj, dict) else None
+
+
+_RE_PHP = re.compile(
+    r"^\[(\d{2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2})(?: [\w/]+)?\]\s*(?P<msg>.*)$")
+
+
+def parse_php_errorlog(raw):
+    m = _RE_PHP.match(raw)
+    if not m:
+        return None
+    dt = _mkdt(m.group(3), m.group(2), m.group(1), m.group(4), m.group(5), m.group(6))
+    msg = m.group("msg")
+    ctx = {}
+    fm = re.search(r" in (/[^ ]+?) on line (\d+)", msg)
+    if fm:
+        ctx["file"] = f"{fm.group(1)}:{fm.group(2)}"
+    return {"@timestamp": _iso_or_empty(dt), "level": _canon_level(msg) or "ERROR",
+            "channel": "php", "message": msg, "context": ctx}
+
+
+_RE_APACHE_ERR = re.compile(
+    r"^\[[A-Za-z]{3} ([A-Za-z]{3}) (\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.\d+)? (\d{4})\] "
+    r"\[(?P<mod>[\w:]+)\] (?P<msg>.*)$")
+
+
+def parse_apache_error(raw):
+    m = _RE_APACHE_ERR.match(raw)
+    if not m:
+        return None
+    dt = _mkdt(m.group(6), m.group(1), m.group(2), m.group(3), m.group(4), m.group(5))
+    return {"@timestamp": _iso_or_empty(dt),
+            "level": _canon_level(m.group("mod")) or "ERROR",
+            "channel": "apache", "message": m.group("msg")}
+
+
+_RE_APACHE_ACC = re.compile(
+    r'^(?P<ip>\S+) \S+ \S+ '
+    r'\[(?P<day>\d{2})/(?P<mon>[A-Za-z]{3})/(?P<year>\d{4}):'
+    r'(?P<h>\d{2}):(?P<mi>\d{2}):(?P<s>\d{2})[^\]]*\] '
+    r'"(?P<req>[^"]*)" (?P<code>\d{3}) ')
+
+
+def parse_apache_access(raw):
+    m = _RE_APACHE_ACC.match(raw)
+    if not m:
+        return None
+    dt = _mkdt(m.group("year"), m.group("mon"), m.group("day"),
+               m.group("h"), m.group("mi"), m.group("s"))
+    code = int(m.group("code"))
+    lvl = "ERROR" if code >= 500 else "WARNING" if code >= 400 else "INFO"
+    return {"@timestamp": _iso_or_empty(dt), "level": lvl, "channel": "access",
+            "message": f'{m.group("ip")}  {m.group("req")} → {code}'}
+
+
+_RE_SYSLOG = re.compile(
+    r"^([A-Za-z]{3})\s+(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) (?P<host>\S+) "
+    r"(?P<proc>[^:\[]+)(?:\[\d+\])?: (?P<msg>.*)$")
+
+
+def parse_syslog(raw):
+    m = _RE_SYSLOG.match(raw)
+    if not m:
+        return None
+    dt = _mkdt(datetime.now().year, m.group(1), m.group(2),
+               m.group(3), m.group(4), m.group(5))
+    msg = m.group("msg")
+    return {"@timestamp": _iso_or_empty(dt), "level": _canon_level(msg) or "INFO",
+            "channel": m.group("proc").strip()[:20], "message": msg}
+
+
+_RE_LEADING_TS = [
+    (re.compile(r"^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"),
+     "%Y-%m-%d %H:%M:%S"),
+    (re.compile(r"^(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})"), "%d/%m/%Y %H:%M:%S"),
+]
+
+
+def parse_generic(raw):
+    dt = None
+    for rx, fmt in _RE_LEADING_TS:
+        m = rx.match(raw)
+        if m:
+            s = m.group(1).replace("T", " ").split(".")[0]
+            try:
+                dt = datetime.strptime(s, fmt)
+            except ValueError:
+                dt = None
+            break
+    return {"@timestamp": _iso_or_empty(dt), "level": _canon_level(raw) or "INFO",
+            "channel": "text", "message": raw}
+
+
+PARSERS = [parse_json_line, parse_php_errorlog, parse_apache_error,
+           parse_apache_access, parse_syslog, parse_generic]
+
+
 def parse_line(raw, path, lineno):
     raw = raw.strip()
     if not raw:
         return None
-    try:
-        obj = json.loads(raw)
-    except json.JSONDecodeError:
-        obj = {"level": "ERROR", "message": raw, "channel": "?", "@timestamp": ""}
+    obj = None
+    for parser in PARSERS:
+        try:
+            obj = parser(raw)
+        except Exception:
+            obj = None
+        if obj is not None:
+            break
+    if obj is None:                      # filet de sécurité
+        obj = {"level": "INFO", "message": raw, "channel": "?", "@timestamp": ""}
+    obj.setdefault("channel", "?")
+    obj.setdefault("level", "INFO")
+    obj.setdefault("message", raw)
+    obj.setdefault("@timestamp", "")
     obj["_file"] = path
     obj["_line"] = lineno
     obj["_dt"] = parse_dt(obj.get("@timestamp"))

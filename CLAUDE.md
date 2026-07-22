@@ -60,8 +60,14 @@ test qui modifie les filtres/police.
 
 Fonctions module (logique pure, testables isolément) :
 - `load_files(paths)` → `parse_line()` par ligne → liste d'events triés par `@timestamp`.
-- `parse_line()` ajoute des champs **internes préfixés `_`** : `_file`, `_line`,
-  `_dt` (datetime naïf). `_clean_event()` les retire avant copie/export.
+- `parse_line()` **détecte le format** en essayant `PARSERS` dans l'ordre (JSON
+  Monolog, PHP error_log, Apache error/access, syslog, puis `parse_generic` en
+  filet). Chaque parseur renvoie un dict avec au moins `@timestamp` (ISO),
+  `level`, `channel`, `message`. `parse_line()` ajoute les champs **internes
+  préfixés `_`** : `_file`, `_line`, `_dt`. `_clean_event()` les retire à l'export.
+  Dates non-ISO parsées via `_mkdt()` + `_MONTHS` (indépendant de la locale —
+  ne pas utiliser `strptime("%b")` qui casse en locale FR). Niveau texte deviné
+  par `_canon_level()` (mots-clés ordonnés).
 - `build_matcher(text, use_regex)` → `re.Pattern | None` (échappe si non-regex,
   `IGNORECASE`). Une regex invalide renvoie `None`.
 - `highlight_markup()` produit le markup Pango de la colonne message.
