@@ -309,6 +309,10 @@ def parse_line(raw, path, lineno):
     obj["_file"] = path
     obj["_line"] = lineno
     obj["_dt"] = parse_dt(obj.get("@timestamp"))
+    # blob de recherche pré-calculé une fois (évite un json.dumps par refilter)
+    obj["_blob"] = json.dumps(
+        {k: v for k, v in obj.items() if not k.startswith("_")},
+        ensure_ascii=False, default=str).lower()
     return obj
 
 
@@ -462,6 +466,10 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.bookmarks = set()       # index d'events marqués (par session)
         self._building_counts = False
         self._ctx_updating = False   # vrai pendant le rebuild des combos context
+        self._cur_matcher = None     # regex compilée courante (recherche)
+        self._populate_src = None    # source idle du remplissage progressif
+        self._pending = []           # (idx, event, count) restant à insérer
+        self._pending_pos = 0
         cfg = load_config()
         self.font_size = int(cfg.get("font_size", 10))
 
@@ -1006,30 +1014,65 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             self._msg_rend.set_property("ellipsize", Pango.EllipsizeMode.END)
         self.tree.columns_autosize()
 
-    # --- remplissage ---
+    # --- remplissage (progressif pour rester réactif sur gros fichiers) ---
+    POPULATE_CHUNK = 3000
+
     def populate(self):
-        matcher = build_matcher(self.search.get_text(), self.regex_chk.get_active())
+        self._cur_matcher = build_matcher(self.search.get_text(),
+                                          self.regex_chk.get_active())
+        # annuler un remplissage en cours
+        if self._populate_src:
+            GLib.source_remove(self._populate_src)
+            self._populate_src = None
         self.store.clear()
         dates = [e["_dt"] for e in self.events if e.get("_dt")]
         self._min_date = min(dates).date() if dates else None
+        # construire la liste de travail (idx, event, count)
+        work = []
         if self.group_chk.get_active():
-            idx = 0
-            n = len(self.events)
+            idx, n = 0, len(self.events)
             while idx < n:
                 e = self.events[idx]
                 key = (e.get("level"), e.get("channel"), e.get("message"))
                 count = 1
-                while (idx + count < n and count < 9999):
+                while idx + count < n and count < 9999:
                     f = self.events[idx + count]
                     if (f.get("level"), f.get("channel"), f.get("message")) != key:
                         break
                     count += 1
-                self.store.append(self._row(idx, e, matcher, count))
+                work.append((idx, e, count))
                 idx += count
         else:
-            for idx, e in enumerate(self.events):
-                self.store.append(self._row(idx, e, matcher, 1))
+            work = [(i, e, 1) for i, e in enumerate(self.events)]
+        self._pending = work
+        self._pending_pos = 0
         self._update_counts()
+        if len(work) <= self.POPULATE_CHUNK:
+            self._append_chunk(len(work))     # tout d'un coup si petit
+            self._finish_populate()
+        else:
+            self._populate_src = GLib.idle_add(self._populate_step)
+
+    def _append_chunk(self, upto):
+        m = self._cur_matcher
+        work = self._pending
+        for i in range(self._pending_pos, upto):
+            idx, e, count = work[i]
+            self.store.append(self._row(idx, e, m, count))
+        self._pending_pos = upto
+
+    def _populate_step(self):
+        end = min(self._pending_pos + self.POPULATE_CHUNK, len(self._pending))
+        self._append_chunk(end)
+        self.status.pop(0)
+        self.status.push(0, f"Chargement… {end}/{len(self._pending)}")
+        if end >= len(self._pending):
+            self._populate_src = None
+            self._finish_populate()
+            return False
+        return True
+
+    def _finish_populate(self):
         self.refilter()
         if self.timeline:
             self.timeline.queue_draw()
@@ -1096,6 +1139,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self._on_filter_changed()
 
     # --- recherche / dates ---
+    MARKUP_MAX = 5000    # au-delà, pas de re-surlignage de la liste (perf)
+
     def on_search_changed(self):
         matcher = build_matcher(self.search.get_text(), self.regex_chk.get_active())
         # signaler une regex invalide
@@ -1104,9 +1149,10 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.search.get_style_context().remove_class("error")
         if invalid:
             self.search.get_style_context().add_class("error")
-        # reconstruire le surlignage des messages
-        for row in self.store:
-            row[COL_MSG] = self._msg_markup(row[COL_IDX], row[COL_COUNT], matcher)
+        # re-surligner la liste seulement si elle n'est pas trop grande
+        if len(self.store) <= self.MARKUP_MAX:
+            for row in self.store:
+                row[COL_MSG] = self._msg_markup(row[COL_IDX], row[COL_COUNT], matcher)
         self.refilter()
         self._persist_filters()
 
@@ -1220,11 +1266,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
                 return False
             if self.dt_end and edt > self.dt_end:
                 return False
-        matcher = build_matcher(self.search.get_text(), self.regex_chk.get_active())
-        if matcher:
-            blob = json.dumps(e, ensure_ascii=False, default=str)
-            if not matcher.search(blob):
-                return False
+        if self._cur_matcher and not self._cur_matcher.search(e.get("_blob", "")):
+            return False
         return True
 
     def _on_filter_changed(self):
@@ -1234,6 +1277,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self._persist_filters()
 
     def refilter(self):
+        # compiler la regex une seule fois par refilter (pas par ligne)
+        self._cur_matcher = build_matcher(self.search.get_text(),
+                                          self.regex_chk.get_active())
         self.filter.refilter()
         visible = len(self.filter)
         self.status.pop(0)
