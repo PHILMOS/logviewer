@@ -60,7 +60,7 @@ Fonctions :
 - `font_size` — taille de police
 - `filters` — derniers filtres (recherche, niveau, channel, dates…)
 - `path_map` — table de correspondance chemin conteneur → hôte, ex :
-  `{"/app": "~/projets/dockr/services/app-eu-interfaces"}`
+  `{"/app": "<filename>"}`
 
 ## Mode terminal (TUI)
 
@@ -79,20 +79,15 @@ Exemples :
 
 ```bash
 # Un fichier
-python3 log_viewer.py ~/projets/dockr/data/php/logs/eu-interfaces/json_php_crash-2026-07-16_10.log
+python3 log_viewer.py <filename>
 
 # Tout un dossier (fusionné + trié par date)
-python3 log_viewer.py '~/projets/dockr/data/php/logs/eu-interfaces/json_*.log'
+python3 log_viewer.py <filename>
 
 # Tous les crashs, récursif
-python3 log_viewer.py '~/projets/dockr/data/php/logs/**/json_php_crash-*.log'
+python3 log_viewer.py <filename>
 ```
 
-Astuce : ajoute un alias dans `~/.bashrc` :
-
-```bash
-alias logv='python3 ~/projets/logviewer/log_viewer.py'
-```
 
 ## Touches
 
