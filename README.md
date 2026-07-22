@@ -30,7 +30,9 @@ Fonctions :
   (« De » / « À » : `Gtk.Calendar` + heure/minute) + **boutons rapides**
   (`15 min` / `1 h` / `Jour` / `Tout`), recherche texte ou **regex** avec
   **surlignage** des occurrences ;
-- **compteurs par niveau** cliquables (`Tous N · ERROR n · CRITICAL n …`) ;
+- **compteurs par niveau** cliquables et **cumulables** (filtre multi-niveaux) ;
+- **marque-pages** (colonne ★, `Ctrl+B`, navigation `F2` / `Maj+F2`, « ★ seulement ») ;
+- **retour à la ligne** togglable sur la colonne message ;
 - **suivi temps réel** (`tail -f`) via le bouton *Suivre* (auto-scroll) ;
 - **groupement** des doublons consécutifs (`×N`) via la case *Grouper* ;
 - **clic droit** : copier la ligne JSON / le message / la stacktrace ;
@@ -52,6 +54,8 @@ Fonctions :
 | `Ctrl+O` | ouvrir des fichiers |
 | `F5` | recharger |
 | `Ctrl +` / `Ctrl -` | taille de police |
+| `Ctrl+B` | marquer / démarquer la ligne |
+| `F2` / `Maj+F2` | marque-page suivant / précédent |
 | `Ctrl+clic` (détail) | ouvrir `fichier:ligne` dans l'éditeur |
 
 ### Configuration (`~/.config/logviewer/config.json`)

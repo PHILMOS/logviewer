@@ -37,15 +37,17 @@ texte, panneau détail avec stacktrace, mémorisation du dernier dossier.
       clic ou glissé pour cadrer une période. (Requiert `python3-gi-cairo`.)
 - [x] **Filtres de date rapides** — boutons `15 min` / `1 h` / `Jour` / `Tout`
       relatifs au dernier event.
-- [ ] **Filtre multi-niveaux** — cocher plusieurs niveaux à la fois.
+- [x] **Filtre multi-niveaux** — boutons compteurs cumulables (ToggleButton),
+      « Tous » efface la sélection.
+- [x] **Marque-pages / drapeaux** — colonne ★, `Ctrl+B` (bascule),
+      `F2`/`Maj+F2` (navigation), toggle « ★ seulement ». (Session uniquement.)
+- [x] **Retour à la ligne (wrap)** togglable sur la colonne message.
 - [ ] **Colonne « source »** (fichier) + filtre par fichier.
-- [ ] **Marque-pages / drapeaux** sur des events + navigation.
 - [ ] **Support des logs `.gz`** rotés.
 - [ ] **Notification desktop** sur CRITICAL en mode Suivre.
 - [ ] **Perf gros fichiers** — chargement en tâche de fond.
-- [ ] **Retour à la ligne (wrap)** togglable sur la colonne message.
-- [ ] **Dépôt git + tests unitaires** sur la logique pure.
+- [x] **Dépôt git** — https://github.com/PHILMOS/logviewer (tests unitaires : à faire).
 
 ---
 Priorités initiales (haute / moyenne / basse) : toutes implémentées. ✅
-v2 : timeline + dates rapides faites.
+v2 : timeline, dates rapides, multi-niveaux, marque-pages, wrap faits.

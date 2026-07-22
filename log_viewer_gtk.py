@@ -274,8 +274,8 @@ class DateTimePicker(Gtk.MenuButton):
         self._update_label()
 
 
-# colonnes du modèle : ts, level, channel, message(markup), fg-color, index, count
-COL_TS, COL_LEVEL, COL_CHAN, COL_MSG, COL_FG, COL_IDX, COL_COUNT = range(7)
+# colonnes : ts, level, channel, message(markup), fg-color, index, count, bookmark
+COL_TS, COL_LEVEL, COL_CHAN, COL_MSG, COL_FG, COL_IDX, COL_COUNT, COL_BM = range(8)
 
 
 class LogViewerWindow(Gtk.ApplicationWindow):
@@ -293,6 +293,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self._tl_press_x = None  # début de sélection glissée sur la timeline
         self._tl_min = None
         self._tl_max = None
+        self.active_levels = set()   # filtre multi-niveaux (vide = tous)
+        self.bookmarks = set()       # index d'events marqués (par session)
+        self._building_counts = False
         cfg = load_config()
         self.font_size = int(cfg.get("font_size", 10))
 
@@ -327,14 +330,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.regex_chk.connect("toggled", lambda *_: self.on_search_changed())
         bar.pack_start(self.regex_chk, False, False, 0)
 
-        self.level_combo = Gtk.ComboBoxText()
-        self.level_combo.append_text("Tous niveaux")
-        for lvl in LEVELS:
-            self.level_combo.append_text(lvl)
-        self.level_combo.set_active(0)
-        self.level_combo.connect("changed", lambda *_: self._on_filter_changed())
-        bar.pack_start(self.level_combo, False, False, 0)
-
+        # filtre multi-niveaux via les boutons compteurs (voir _update_counts)
         self.chan_combo = Gtk.ComboBoxText()
         self.chan_combo.append_text("Tous channels")
         self.chan_combo.set_active(0)
@@ -346,6 +342,16 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.group_chk.connect("toggled", lambda *_: (self.populate(),
                                                       self._persist_filters()))
         bar.pack_start(self.group_chk, False, False, 0)
+
+        self.wrap_chk = Gtk.CheckButton(label="Retour ligne")
+        self.wrap_chk.set_tooltip_text("Afficher les messages longs sur plusieurs lignes")
+        self.wrap_chk.connect("toggled", lambda *_: self._apply_wrap())
+        bar.pack_start(self.wrap_chk, False, False, 0)
+
+        self.bm_only_chk = Gtk.ToggleButton(label="★")
+        self.bm_only_chk.set_tooltip_text("N'afficher que les marque-pages")
+        self.bm_only_chk.connect("toggled", lambda *_: self._on_filter_changed())
+        bar.pack_start(self.bm_only_chk, False, False, 0)
 
         self.follow_btn = Gtk.ToggleButton(label="Suivre")
         self.follow_btn.set_tooltip_text("Suivi temps réel (tail -f) des fichiers chargés")
@@ -388,15 +394,17 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         paned.set_position(470)
         outer.pack_start(paned, True, True, 0)
 
-        self.store = Gtk.ListStore(str, str, str, str, str, int, int)
+        self.store = Gtk.ListStore(str, str, str, str, str, int, int, str)
         self.filter = self.store.filter_new()
         self.filter.set_visible_func(self._visible)
         self.tree = Gtk.TreeView(model=self.filter)
         self.tree.set_fixed_height_mode(True)
+        self._add_column("★", COL_BM, 28)
         self._add_column("Date/heure", COL_TS, 165)
         self._add_column("Niveau", COL_LEVEL, 90)
         self._add_column("Channel", COL_CHAN, 130)
-        self._add_column("Message", COL_MSG, 620, expand=True, markup=True)
+        self._msg_col = self._add_column("Message", COL_MSG, 620,
+                                         expand=True, markup=True)
         self.tree.get_selection().connect("changed", self.on_select)
         self.tree.connect("button-press-event", self.on_tree_click)
         sc1 = Gtk.ScrolledWindow()
@@ -474,7 +482,50 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         if ctrl and kv in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
             self.change_font(-1)
             return True
+        if ctrl and kv in (Gdk.KEY_b, Gdk.KEY_B):
+            self._toggle_bookmark_selected()
+            return True
+        if kv == Gdk.KEY_F2:
+            shift = event.state & Gdk.ModifierType.SHIFT_MASK
+            self._goto_bookmark(-1 if shift else 1)
+            return True
         return False
+
+    # --- marque-pages (#9) ---
+    def _toggle_bookmark_selected(self):
+        model, it = self.tree.get_selection().get_selected()
+        if it is None:
+            return
+        idx = model[it][COL_IDX]
+        if idx in self.bookmarks:
+            self.bookmarks.discard(idx)
+        else:
+            self.bookmarks.add(idx)
+        # met à jour la cellule ★ (le modèle sous-jacent est self.store)
+        child_it = model.convert_iter_to_child_iter(it)
+        self.store[child_it][COL_BM] = "★" if idx in self.bookmarks else ""
+        if self.bm_only_chk.get_active():
+            self.refilter()
+        n = len(self.bookmarks)
+        self.status.pop(0)
+        self.status.push(0, f"{n} marque-page(s)")
+
+    def _goto_bookmark(self, direction):
+        if not self.bookmarks:
+            return
+        rows = list(self.filter)
+        if not rows:
+            return
+        model, it = self.tree.get_selection().get_selected()
+        cur = model.get_path(it).get_indices()[0] if it is not None else -1
+        n = len(rows)
+        for step in range(1, n + 1):
+            i = (cur + direction * step) % n
+            if rows[i][COL_IDX] in self.bookmarks:
+                path = Gtk.TreePath(i)
+                self.tree.set_cursor(path)
+                self.tree.scroll_to_cell(path, None, False, 0, 0)
+                return
 
     def reload(self):
         if self.loaded_paths:
@@ -543,7 +594,24 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
         if expand:
             column.set_expand(True)
+        if markup:
+            self._msg_rend = rend
         self.tree.append_column(column)
+        return column
+
+    def _apply_wrap(self):
+        """Bascule le retour à la ligne de la colonne message (#12)."""
+        wrap = self.wrap_chk.get_active()
+        # le mode hauteur fixe interdit le wrap : on le désactive quand wrap on
+        self.tree.set_fixed_height_mode(not wrap)
+        if wrap:
+            self._msg_rend.set_property("ellipsize", Pango.EllipsizeMode.NONE)
+            self._msg_rend.set_property("wrap-mode", Pango.WrapMode.WORD_CHAR)
+            self._msg_rend.set_property("wrap-width", max(self._msg_col.get_width(), 400))
+        else:
+            self._msg_rend.set_property("wrap-width", -1)
+            self._msg_rend.set_property("ellipsize", Pango.EllipsizeMode.END)
+        self.tree.columns_autosize()
 
     # --- remplissage ---
     def populate(self):
@@ -589,36 +657,50 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             PALETTE.get(lvl, PALETTE["_text"]),
             idx,
             count,
+            "★" if idx in self.bookmarks else "",
         ]
 
     def _update_counts(self):
+        self._building_counts = True
         for child in self.counts_box.get_children():
             self.counts_box.remove(child)
         counts = Counter(e.get("level") or "?" for e in self.events)
         total = Gtk.Button(label=f"Tous {len(self.events)}")
         total.set_relief(Gtk.ReliefStyle.NONE)
-        total.connect("clicked", lambda *_: self.level_combo.set_active(0))
+        total.set_tooltip_text("Effacer le filtre de niveaux")
+        total.connect("clicked", self._on_all_levels)
         self.counts_box.pack_start(total, False, False, 0)
         for lvl in LEVELS:
             n = counts.get(lvl, 0)
             if not n:
                 continue
-            btn = Gtk.Button()
+            btn = Gtk.ToggleButton()
+            btn.set_active(lvl in self.active_levels)
             lbl = Gtk.Label()
             lbl.set_markup(
                 f'<span foreground="{LEVEL_FG.get(lvl, "#000")}">{lvl} '
                 f'<b>{n}</b></span>')
             btn.add(lbl)
             btn.set_relief(Gtk.ReliefStyle.NONE)
-            btn.set_tooltip_text(f"Filtrer sur {lvl}")
-            btn.connect("clicked", self._on_count_clicked, lvl)
+            btn.set_tooltip_text(f"Filtrer sur {lvl} (cumulable)")
+            btn.connect("toggled", self._on_count_toggled, lvl)
             self.counts_box.pack_start(btn, False, False, 0)
         self.counts_box.show_all()
+        self._building_counts = False
 
-    def _on_count_clicked(self, _btn, lvl):
-        idx = LEVELS.index(lvl) + 1
-        # bascule : reclic sur le niveau actif -> tous
-        self.level_combo.set_active(0 if self.level_combo.get_active() == idx else idx)
+    def _on_all_levels(self, _btn):
+        self.active_levels.clear()
+        self._update_counts()
+        self._on_filter_changed()
+
+    def _on_count_toggled(self, btn, lvl):
+        if self._building_counts:
+            return
+        if btn.get_active():
+            self.active_levels.add(lvl)
+        else:
+            self.active_levels.discard(lvl)
+        self._on_filter_changed()
 
     # --- recherche / dates ---
     def on_search_changed(self):
@@ -719,9 +801,11 @@ class LogViewerWindow(Gtk.ApplicationWindow):
 
     # --- filtrage ---
     def _visible(self, model, it, _data):
-        e = self.events[model[it][COL_IDX]]
-        lvl_sel = self.level_combo.get_active_text()
-        if lvl_sel and lvl_sel != "Tous niveaux" and e.get("level") != lvl_sel:
+        idx = model[it][COL_IDX]
+        e = self.events[idx]
+        if self.bm_only_chk.get_active() and idx not in self.bookmarks:
+            return False
+        if self.active_levels and e.get("level") not in self.active_levels:
             return False
         ch_sel = self.chan_combo.get_active_text()
         if ch_sel and ch_sel != "Tous channels" and (e.get("channel") or "?") != ch_sel:
@@ -763,7 +847,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             "search": self.search.get_text(),
             "regex": self.regex_chk.get_active(),
             "group": self.group_chk.get_active(),
-            "level": self.level_combo.get_active_text() or "Tous niveaux",
+            "levels": sorted(self.active_levels),
             "channel": self.chan_combo.get_active_text() or "Tous channels",
             "date_start": self.dt_start.isoformat() if self.dt_start else "",
             "date_end": self.dt_end.isoformat() if self.dt_end else "",
@@ -781,7 +865,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             self.group_chk.set_active(bool(flt.get("group")))
             self.date_start.set_value(self._iso(flt.get("date_start")))
             self.date_end.set_value(self._iso(flt.get("date_end")))
-            self._set_combo(self.level_combo, flt.get("level"))
+            self.active_levels = set(flt.get("levels") or [])
             self._set_combo(self.chan_combo, flt.get("channel"))
         finally:
             self._loading = False
@@ -959,8 +1043,15 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         e = self._selected_event()
         if e is None:
             return False
+        model, it = self.tree.get_selection().get_selected()
+        idx = model[it][COL_IDX] if it is not None else None
+        bm_label = ("Retirer le marque-page ★" if idx in self.bookmarks
+                    else "Marquer ★") if idx is not None else None
         menu = Gtk.Menu()
-        items = [
+        items = []
+        if bm_label:
+            items.append((bm_label, lambda *_: self._toggle_bookmark_selected()))
+        items += [
             ("Copier la ligne JSON",
              lambda *_: self._copy(json.dumps(self._clean_event(e), ensure_ascii=False))),
             ("Copier le message", lambda *_: self._copy(e.get("message", ""))),
@@ -1126,6 +1217,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             self.follow_btn.set_active(False)
         self.loaded_paths = expand_paths(paths)
         self.events = load_files(self.loaded_paths)
+        self.bookmarks.clear()   # les index changent au rechargement
         self.chan_combo.remove_all()
         self.chan_combo.append_text("Tous channels")
         for ch in sorted({e.get("channel") or "?" for e in self.events}):
