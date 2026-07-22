@@ -439,8 +439,9 @@ class DateTimePicker(Gtk.MenuButton):
         self._update_label()
 
 
-# colonnes : ts, level, channel, message(markup), fg-color, index, count, bookmark
-COL_TS, COL_LEVEL, COL_CHAN, COL_MSG, COL_FG, COL_IDX, COL_COUNT, COL_BM = range(8)
+# colonnes : ts, level, channel, message, fg-color, index, count, bookmark, source
+(COL_TS, COL_LEVEL, COL_CHAN, COL_MSG, COL_FG, COL_IDX, COL_COUNT,
+ COL_BM, COL_SRC) = range(9)
 
 
 class LogViewerWindow(Gtk.ApplicationWindow):
@@ -515,6 +516,13 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.chan_combo.set_active(0)
         self.chan_combo.connect("changed", lambda *_: self._on_filter_changed())
         bar.pack_start(self.chan_combo, False, False, 0)
+
+        self.src_combo = Gtk.ComboBoxText()
+        self.src_combo.set_tooltip_text("Filtrer par fichier source")
+        self.src_combo.append_text("Tous fichiers")
+        self.src_combo.set_active(0)
+        self.src_combo.connect("changed", lambda *_: self._on_filter_changed())
+        bar.pack_start(self.src_combo, False, False, 0)
 
         self.group_chk = Gtk.CheckButton(label="Grouper")
         self.group_chk.set_tooltip_text("Replier les events identiques consécutifs (×N)")
@@ -594,7 +602,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         paned.set_position(470)
         outer.pack_start(paned, True, True, 0)
 
-        self.store = Gtk.ListStore(str, str, str, str, str, int, int, str)
+        self.store = Gtk.ListStore(str, str, str, str, str, int, int, str, str)
         self.filter = self.store.filter_new()
         self.filter.set_visible_func(self._visible)
         self.tree = Gtk.TreeView(model=self.filter)
@@ -603,7 +611,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self._add_column("Date/heure", COL_TS, 165)
         self._add_column("Niveau", COL_LEVEL, 90)
         self._add_column("Channel", COL_CHAN, 130)
-        self._msg_col = self._add_column("Message", COL_MSG, 620,
+        self._add_column("Source", COL_SRC, 150)
+        self._msg_col = self._add_column("Message", COL_MSG, 560,
                                          expand=True, markup=True)
         self.tree.get_selection().connect("changed", self.on_select)
         self.tree.connect("button-press-event", self.on_tree_click)
@@ -747,6 +756,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.loaded_paths = []
         self.events = []
         self.bookmarks.clear()
+        self.src_combo.remove_all()
+        self.src_combo.append_text("Tous fichiers")
+        self.src_combo.set_active(0)
         self.store.clear()
         self.detail.get_buffer().set_text("")
         self._update_counts()
@@ -1051,6 +1063,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             idx,
             count,
             "★" if idx in self.bookmarks else "",
+            os.path.basename(e.get("_file") or ""),
         ]
 
     def _update_counts(self):
@@ -1204,6 +1217,10 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             return False
         ch_sel = self.chan_combo.get_active_text()
         if ch_sel and ch_sel != "Tous channels" and (e.get("channel") or "?") != ch_sel:
+            return False
+        src_sel = self.src_combo.get_active_text()
+        if src_sel and src_sel != "Tous fichiers" \
+                and os.path.basename(e.get("_file") or "") != src_sel:
             return False
         ck = self.ctx_key_combo.get_active_text()
         cv = self.ctx_val_combo.get_active_text()
@@ -1655,6 +1672,12 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         for ch in sorted({e.get("channel") or "?" for e in self.events}):
             self.chan_combo.append_text(ch)
         self.chan_combo.set_active(0)
+        # combo « fichier source » : basenames des fichiers chargés
+        self.src_combo.remove_all()
+        self.src_combo.append_text("Tous fichiers")
+        for name in sorted({os.path.basename(p) for p in self.loaded_paths}):
+            self.src_combo.append_text(name)
+        self.src_combo.set_active(0)
         self._refresh_ctx_keys()
         self._restore_filters()
         self.populate()
