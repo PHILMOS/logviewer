@@ -49,7 +49,8 @@ texte, panneau détail avec stacktrace, mémorisation du dernier dossier.
 - [ ] **Colonne « source »** (fichier) + filtre par fichier.
 - [x] **Multi-formats** — détection auto par ligne : JSON Monolog, PHP error_log,
       Apache error/access, syslog/logs système, texte générique.
-- [ ] **Support des logs `.gz`** rotés.
+- [x] **Support des logs `.gz`** rotés — décompression transparente (`open_text`).
+      Non suivis en tail (statiques).
 - [x] **Notification desktop** sur ERROR/CRITICAL en mode Suivre (case *Notifier*).
 - [ ] **Perf gros fichiers** — chargement en tâche de fond.
 - [x] **Dépôt git** — https://github.com/PHILMOS/logviewer (tests unitaires : à faire).

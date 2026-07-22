@@ -3,7 +3,8 @@
 Viewer de logs de dockr. Formats reconnus automatiquement, ligne par ligne :
 **JSON Monolog/ELK**, **PHP error_log**, **Apache** (error + access),
 **syslog / logs système**, et **texte générique** (niveau deviné par mots-clés,
-horodatage détecté par regex). Deux interfaces :
+horodatage détecté par regex). Les fichiers **`.gz`** sont lus directement.
+Deux interfaces :
 
 - **`log_viewer_gtk.py`** — application graphique GNOME (GTK3 / PyGObject).
 - **`log_viewer.py`** — viewer terminal (TUI curses, zéro dépendance).

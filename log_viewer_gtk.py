@@ -13,6 +13,7 @@ Sans argument, un sélecteur de fichiers s'ouvre.
 from __future__ import annotations
 
 import glob
+import gzip
 import json
 import os
 import re
@@ -311,11 +312,18 @@ def parse_line(raw, path, lineno):
     return obj
 
 
+def open_text(path):
+    """Ouvre un fichier texte, transparent pour les logs compressés .gz."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return open(path, "r", encoding="utf-8", errors="replace")
+
+
 def load_files(paths):
     events = []
     for path in paths:
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            with open_text(path) as fh:
                 for lineno, raw in enumerate(fh, 1):
                     ev = parse_line(raw, path, lineno)
                     if ev is not None:
@@ -760,7 +768,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             if not p:
                 continue
             if os.path.isdir(p):
-                paths.append(os.path.join(p, "*.log"))
+                paths += [os.path.join(p, "*.log"), os.path.join(p, "*.log.gz")]
             elif os.path.isfile(p):
                 paths.append(p)
         if paths:
@@ -891,7 +899,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.folder_label.set_tooltip_text(self.folder)
         for child in self.file_list.get_children():
             self.file_list.remove(child)
-        files = sorted(glob.glob(os.path.join(self.folder, "*.log")))
+        files = sorted(glob.glob(os.path.join(self.folder, "*.log"))
+                       + glob.glob(os.path.join(self.folder, "*.log.gz")))
         self._sidebar_loading = True
         for path in files:
             row = Gtk.ListBoxRow()
@@ -1529,6 +1538,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
     def _seed_tracking(self):
         self.tracked = {}
         for path in self.loaded_paths:
+            if path.endswith(".gz"):   # les .gz sont rotés/statiques : pas de tail
+                continue
             try:
                 size = os.path.getsize(path)
                 with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -1609,8 +1620,9 @@ class LogViewerWindow(Gtk.ApplicationWindow):
                         "Ouvrir", Gtk.ResponseType.OK)
         dlg.set_select_multiple(True)
         flt = Gtk.FileFilter()
-        flt.set_name("Logs JSON (*.log)")
+        flt.set_name("Logs (*.log, *.gz)")
         flt.add_pattern("*.log")
+        flt.add_pattern("*.gz")
         dlg.add_filter(flt)
         allf = Gtk.FileFilter()
         allf.set_name("Tous les fichiers")
