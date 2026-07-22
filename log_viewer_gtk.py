@@ -38,6 +38,8 @@ except Exception:
     HAS_CAIRO = False
 
 LEVELS = ["DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "CRITICAL", "ALERT", "EMERGENCY"]
+# niveaux déclenchant une notification desktop en mode Suivre
+NOTIFY_LEVELS = {"ERROR", "CRITICAL", "ALERT", "EMERGENCY"}
 
 # palettes de couleurs (clair / sombre)
 PALETTE_LIGHT = {
@@ -371,6 +373,12 @@ class LogViewerWindow(Gtk.ApplicationWindow):
         self.follow_btn.set_tooltip_text("Suivi temps réel (tail -f) des fichiers chargés")
         self.follow_btn.connect("toggled", self.on_follow_toggled)
         bar.pack_start(self.follow_btn, False, False, 0)
+
+        self.notify_chk = Gtk.CheckButton(label="Notifier")
+        self.notify_chk.set_active(True)
+        self.notify_chk.set_tooltip_text(
+            "Notification desktop sur ERROR/CRITICAL pendant le suivi")
+        bar.pack_start(self.notify_chk, False, False, 0)
 
         export_btn = Gtk.Button(label="Exporter…")
         export_btn.set_tooltip_text("Exporter les events affichés en JSON ou CSV")
@@ -1377,6 +1385,7 @@ class LogViewerWindow(Gtk.ApplicationWindow):
     def _poll_tail(self):
         matcher = build_matcher(self.search.get_text(), self.regex_chk.get_active())
         added = 0
+        new_alerts = []          # events ERROR+ arrivés durant ce tick
         for path, st in self.tracked.items():
             try:
                 size = os.path.getsize(path)
@@ -1404,6 +1413,8 @@ class LogViewerWindow(Gtk.ApplicationWindow):
                 self.events.append(ev)
                 self.store.append(self._row(idx, ev, matcher))
                 added += 1
+                if ev.get("level") in NOTIFY_LEVELS:
+                    new_alerts.append(ev)
         if added:
             self._update_counts()
             self.refilter()
@@ -1413,7 +1424,26 @@ class LogViewerWindow(Gtk.ApplicationWindow):
             n = len(self.filter)
             if n:
                 self.tree.scroll_to_cell(Gtk.TreePath(n - 1), None, False, 0, 0)
+        if new_alerts and self.notify_chk.get_active():
+            self._notify_alerts(new_alerts)
         return True  # continuer le timer
+
+    def _notify_alerts(self, alerts):
+        app = self.get_application()
+        if app is None or not app.get_application_id():
+            return
+        last = alerts[-1]
+        title = (f"logviewer — {len(alerts)} alerte(s)" if len(alerts) > 1
+                 else f"logviewer — {last.get('level')}")
+        body = (last.get("message") or "").replace("\n", " ")[:180]
+        notif = Gio.Notification.new(title)
+        notif.set_body(body)
+        notif.set_priority(Gio.NotificationPriority.URGENT)
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "logviewer.png")
+        if os.path.isfile(icon_path):
+            notif.set_icon(Gio.FileIcon.new(Gio.File.new_for_path(icon_path)))
+        app.send_notification("logviewer-alert", notif)
 
     # --- ouverture de fichiers ---
     def on_open(self, _btn):

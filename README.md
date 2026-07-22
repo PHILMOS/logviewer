@@ -37,7 +37,9 @@ Fonctions :
 - **compteurs par niveau** cliquables et **cumulables** (filtre multi-niveaux) ;
 - **marque-pages** (colonne ★, `Ctrl+B`, navigation `F2` / `Maj+F2`, « ★ seulement ») ;
 - **retour à la ligne** togglable sur la colonne message ;
-- **suivi temps réel** (`tail -f`) via le bouton *Suivre* (auto-scroll) ;
+- **suivi temps réel** (`tail -f`) via le bouton *Suivre* (auto-scroll) avec
+  **notification desktop** sur ERROR/CRITICAL (case *Notifier*) ;
+- bouton **Vider** (`Ctrl+L`) pour réinitialiser le contenu ;
 - **groupement** des doublons consécutifs (`×N`) via la case *Grouper* ;
 - **clic droit** : copier la ligne JSON / le message / la stacktrace ;
 - bouton *Exporter…* : sélection affichée vers `.json` ou `.csv` ;
