@@ -4,14 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-**logviewer** est un viewer de logs JSON (format Monolog / ELK) pour la stack
-**dockr**. Deux interfaces autonomes, **sans dépendance hors stdlib + PyGObject** :
+**logviewer** est un viewer de logs pour la stack **dockr**. Deux interfaces
+autonomes, **sans dépendance hors stdlib + PyGObject** :
 
 - `log_viewer_gtk.py` — application graphique GNOME (GTK3). Interface principale.
 - `log_viewer.py` — viewer terminal (TUI curses). Zéro dépendance.
 
-Les deux lisent les fichiers `json_*.log` en **JSON Lines** (un objet JSON par
-ligne) produits par les services dockr sous `~/projets/dockr/data/php/logs/**`.
+Formats détectés **par ligne** (voir `PARSERS`) : JSON Monolog/ELK, PHP
+error_log, Apache error/access, syslog/logs système, texte générique. Les
+fichiers **`.gz`** sont lus directement (`open_text`). Logs dockr sous
+`~/projets/dockr/data/php/logs/**`.
+
+Dépendance optionnelle : **`python3-gi-cairo`** pour la timeline (sinon masquée,
+cf. `HAS_CAIRO`).
 
 ## Commandes
 
@@ -67,7 +72,9 @@ Fonctions module (logique pure, testables isolément) :
   préfixés `_`** : `_file`, `_line`, `_dt`. `_clean_event()` les retire à l'export.
   Dates non-ISO parsées via `_mkdt()` + `_MONTHS` (indépendant de la locale —
   ne pas utiliser `strptime("%b")` qui casse en locale FR). Niveau texte deviné
-  par `_canon_level()` (mots-clés ordonnés).
+  par `_canon_level()` (mots-clés ordonnés). `parse_line()` calcule aussi
+  **`_blob`** : le JSON de l'event en minuscules, pré-calculé une fois pour la
+  recherche (ne pas refaire de `json.dumps` par ligne dans `_visible`).
 - `build_matcher(text, use_regex)` → `re.Pattern | None` (échappe si non-regex,
   `IGNORECASE`). Une regex invalide renvoie `None`.
 - `highlight_markup()` produit le markup Pango de la colonne message.
@@ -76,23 +83,34 @@ Fonctions module (logique pure, testables isolément) :
   (niveaux, surlignage `_hl`, frames `_app`/`_vendor`, texte `_text`) y passent.
 
 UI :
-- `LogViewerApp(Gtk.Application)` → crée une unique `LogViewerWindow`.
-- `LogViewerWindow` : `Gtk.ListStore` (colonnes indexées par les constantes
-  **`COL_*`**) enveloppé d'un `Gtk.TreeModelFilter`. **Tout le filtrage passe par
-  `_visible()`** (niveau, channel, plage de dates, matcher) ; changer un filtre
-  appelle `refilter()` (jamais de reconstruction du store, sauf groupement).
-- `_row()` construit une ligne ; `COL_IDX` pointe vers `self.events`, `COL_COUNT`
-  porte le `×N` du **groupement** (events identiques *consécutifs*, calculé dans
-  `populate()`).
-- `DateTimePicker(Gtk.MenuButton)` : widget calendrier + heure/minute, valeur
-  `datetime | None` via `get_value()`/`set_value()`.
+- `LogViewerApp(Gtk.Application)` (application_id `com.peopulse.logviewer`,
+  requis pour les notifications) → crée une unique `LogViewerWindow`.
+- Disposition : `Gtk.Paned` horizontal = **panneau latéral fichiers** (gauche,
+  `ListBox` multi-sélection d'un dossier) | contenu (droite). Contenu : barres
+  d'outils, **timeline** (`Gtk.DrawingArea`, si `HAS_CAIRO`), `Gtk.TreeView` sur
+  `Gtk.ListStore` (+ `Gtk.TreeModelFilter`), panneau détail, barre de statut.
+- **Tout le filtrage passe par `_visible()`** : marque-pages, niveaux
+  (`active_levels`, multi), channel, **source** (fichier), tag de **context**
+  (`ctx_key`/`ctx_val`), plage de dates, puis `self._cur_matcher` sur `_blob`.
+  Changer un filtre → `refilter()`, qui **compile la regex une seule fois**
+  (`_cur_matcher`) puis `self.filter.refilter()`.
+- Colonnes **`COL_*`** (`range(9)`) : ts, level, chan, msg(markup), fg, idx,
+  count, bookmark(★), source. `COL_IDX` pointe vers `self.events`, `COL_COUNT`
+  porte le `×N` du groupement.
+- **`populate()` est progressif** : construit la liste de travail puis insère par
+  lots (`POPULATE_CHUNK`) via `GLib.idle_add(_populate_step)` pour ne pas geler
+  l'UI (statut « Chargement… N/total »). Petits volumes insérés d'un coup.
+- `DateTimePicker(Gtk.MenuButton)` : calendrier + heure/minute, `get/set_value`.
 
 Invariants importants :
 - Les events sont **triés à l'ouverture** ; le **tail** (`_poll_tail`) ajoute en
-  fin sans re-trier (les logs sont append-only chronologiques) et suit un offset
-  octet + n° de ligne par fichier dans `self.tracked` (gère rotation/troncature).
-- Reconstruire le surlignage (recherche) modifie `COL_MSG` en place via
-  `_msg_markup()` — préserver `COL_COUNT`.
+  fin sans re-trier, suit offset octet + n° ligne par fichier dans `self.tracked`
+  (gère rotation/troncature ; les `.gz` sont exclus du tail). Émet une
+  notification GNOME sur `NOTIFY_LEVELS` si la case *Notifier* est active.
+- Re-surlignage de la liste (recherche) : modifie `COL_MSG` via `_msg_markup()`
+  en préservant `COL_COUNT`, et **plafonné à `MARKUP_MAX` lignes** (perf).
+- Marque-pages (`self.bookmarks`, index) : **session uniquement**, effacés au
+  rechargement. Combos source/context reconstruits dans `set_files()`.
 
 ## Configuration : `~/.config/logviewer/config.json`
 
